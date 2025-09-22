@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat en Tiempo Real</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        margin: 0;
+        background-color: #f0f2f5;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+      }
+      #chat-container {
+        width: 90%;
+        max-width: 600px;
+        height: 80vh;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #messages {
+        list-style-type: none;
+        margin: 0;
+        padding: 20px;
+        flex-grow: 1;
+        overflow-y: auto;
+      }
+      #messages > li {
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        border-radius: 18px;
+        max-width: 70%;
+        word-wrap: break-word;
+      }
+      #messages > li.my-message {
+        background-color: #0084ff;
+        color: white;
+        align-self: flex-end;
+        margin-left: auto;
+      }
+      #messages > li.other-message {
+        background-color: #e4e6eb;
+        color: #050505;
+        align-self: flex-start;
+      }
+      #messages > li.notification {
+        background-color: transparent;
+        color: #65676b;
+        font-style: italic;
+        font-size: 0.9em;
+        text-align: center;
+        align-self: center;
+        width: 100%;
+      }
+      #form {
+        display: flex;
+        padding: 10px;
+        border-top: 1px solid #ddd;
+      }
+      #input {
+        border: 1px solid #ccc;
+        padding: 10px;
+        border-radius: 20px;
+        flex-grow: 1;
+        margin-right: 10px;
+      }
+      #form > button {
+        background: #0084ff;
+        border: none;
+        padding: 10px 15px;
+        color: white;
+        border-radius: 20px;
+        cursor: pointer;
+      }
+      #typing-indicator {
+        height: 20px;
+        padding: 0 20px;
+        font-style: italic;
+        color: #65676b;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="chat-container">
+      <ul id="messages"></ul>
+      <div id="typing-indicator"></div>
+      <form id="form" action="">
+        <input
+          id="input"
+          autocomplete="off"
+          placeholder="Escribe un mensaje..."
+        />
+        <button>Enviar</button>
+      </form>
+    </div>
+
+    <!-- Importamos la librería de cliente de Socket.IO -->
+    <!-- La ruta '/socket.io/socket.io.js' es servida automáticamente por el servidor de Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+
+    <script>
+      // Se envuelve todo el código en un event listener para asegurar que el DOM
+      // y la librería de socket.io se carguen antes de ejecutar el script.
+      document.addEventListener("DOMContentLoaded", () => {
+        // Nos conectamos al servidor de Socket.IO
+        // 'io()' sin argumentos se conecta al servidor que sirvió esta página.
+        const socket = io();
+
+        // 3. Obtenemos referencias a los elementos del DOM
+        const form = document.getElementById("form");
+        const input = document.getElementById("input");
+        const messages = document.getElementById("messages");
+        const typingIndicator = document.getElementById("typing-indicator");
+
+        let typingTimeout;
+        let usuario = prompt(
+          "Por favor, ingresa tu nombre de usuario:",
+          "Nombre de Usuario"
+        );
+        const MY_USER_ID = "Usuario: " + usuario; // Un nombre simple y aleatorio
+
+        // 4. Lógica para enviar mensajes
+        form.addEventListener("submit", (e) => {
+          e.preventDefault(); // Evitamos que la página se recargue
+          if (input.value) {
+            // Emitimos un evento 'chat message' al servidor con el valor del input
+            socket.emit("chat message", `${MY_USER_ID}: ${input.value}`);
+
+            // Agregamos el mensaje a nuestra propia lista al instante para una mejor experiencia
+            addMessage(input.value, "my-message");
+            input.value = ""; // Limpiamos el input
+          }
+        });
+
+        // 5. Lógica para el indicador de "escribiendo"
+        input.addEventListener("input", () => {
+          // Cuando el usuario escribe, emitimos el evento 'typing'
+          socket.emit("typing", MY_USER_ID);
+
+          // Reiniciamos un temporizador. Si el usuario deja de escribir por 1 segundo,
+          // se limpiará el indicador.
+          clearTimeout(typingTimeout);
+          typingTimeout = setTimeout(() => {
+            typingIndicator.textContent = "";
+          }, 1000);
+        });
+
+        // 6. Escuchamos los eventos que vienen del servidor
+
+        // Cuando recibimos un 'chat message' del servidor
+        socket.on("chat message", (msg) => {
+          // Solo lo mostramos si no es nuestro propio mensaje (que ya agregamos)
+          if (!msg.startsWith(MY_USER_ID)) {
+            addMessage(msg, "other-message");
+          }
+        });
+
+        // Cuando un usuario se conecta
+        socket.on("user connected", (msg) => {
+          addNotification(msg);
+        });
+
+        // Cuando un usuario se desconecta
+        socket.on("user disconnected", (msg) => {
+          addNotification(msg);
+        });
+
+        // Cuando otro usuario está escribiendo
+        socket.on("typing", (user) => {
+          typingIndicator.textContent = `${user} está escribiendo...`;
+          // Limpiamos el indicador después de un breve tiempo
+          setTimeout(() => {
+            typingIndicator.textContent = "";
+          }, 1500); // Un poco más que el timeout del emisor para evitar parpadeos
+        });
+
+        // Funciones auxiliares para mantener el código limpio
+        function addMessage(msg, type) {
+          const item = document.createElement("li");
+          item.textContent = msg;
+          item.className = type;
+          messages.appendChild(item);
+          // Hacemos scroll hacia abajo automáticamente
+          messages.scrollTop = messages.scrollHeight;
+        }
+
+        function addNotification(msg) {
+          const item = document.createElement("li");
+          item.textContent = msg;
+          item.className = "notification";
+          messages.appendChild(item);
+          messages.scrollTop = messages.scrollHeight;
+        }
+      });
+    </script>
+  </body>
+</html>
